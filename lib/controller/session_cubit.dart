@@ -2,6 +2,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
@@ -205,60 +206,61 @@ class SessionCubit extends Cubit<SessionState> {
     }
   }
 
-  Future<void> _handleWebSocketMessage(String message) async {
+  Future<void> _handleWebSocketMessage(dynamic message) async {
+
     try {
-      final data = jsonDecode(message);
-      final type = data['type'] as String;
-      switch (type) {
-        case 'instantiating_connection':
-          print('Gemini session is being set up...');
-          emit(state.copyWith(connecting: true));
-          break;
-        case 'successfully_connected':
-          print('Gemini session established! Starting audio...');
-          await startRecording();
-          await Future.delayed(const Duration(milliseconds: 500)); // let audio settle
-          print('Audio ready, initializing camera...');
-          await _initCamera();
-          emit(state.copyWith(isSessionStarted: true, connecting: false));
-          break;
-        case 'error':
-          final errorMsg = data['message'] as String? ?? 'Unknown error';
-          print('Backend error: $errorMsg');
-          emit(state.copyWith(error: errorMsg, isError: true));
-          _stopAllStreams(); // Stop all operations on backend error
-          break;
-        case 'turn_complete':
-          print('TURN COMPLETE received');
-          await _voiceEngine!.stopPlayback();
-          emit(state.copyWith(
-            isBotSpeaking: false,
-          ));
-          break;
-        case 'interrupted':
-          print('INTERRUPTED received');
-          await _voiceEngine!.stopPlayback();
-          emit(state.copyWith(
-            isBotSpeaking: false,
-          ));
-          break;
-        case 'audio_chunk': // Consistent with backend type
-          final base64Chunk = data['chunk'] as String?;
-          if (base64Chunk != null) {
-            final audioData = base64Decode(base64Chunk);
-            emit(state.copyWith(isBotSpeaking: true));
-            try {
-              print("Playing audio chunk of size: ${audioData.length} bytes");
-              await _voiceEngine!.playAudioChunk(audioData);
-            } catch (e, stackTrace) {
-              print('Playback error: $e\n$stackTrace');
-              emit(state.copyWith(error: 'Playback error: $e', isError: true));
-            }
-          }
-          break;
-        default:
-          print('Unhandled message type: $type');
+      if(message is String) {
+        final data = jsonDecode(message);
+        final type = data['type'] as String;
+        switch (type) {
+          case 'instantiating_connection':
+            print('Gemini session is being set up...');
+            emit(state.copyWith(connecting: true));
+            break;
+          case 'successfully_connected':
+            print('Gemini session established! Starting audio...');
+            await startRecording();
+            await Future.delayed(const Duration(milliseconds: 500)); // let audio settle
+            print('Audio ready, initializing camera...');
+            await _initCamera();
+            emit(state.copyWith(isSessionStarted: true, connecting: false));
+            break;
+          case 'error':
+            final errorMsg = data['message'] as String? ?? 'Unknown error';
+            print('Backend error: $errorMsg');
+            emit(state.copyWith(error: errorMsg, isError: true));
+            _stopAllStreams(); // Stop all operations on backend error
+            break;
+          case 'turn_complete':
+            print('TURN COMPLETE received');
+            await _voiceEngine!.stopPlayback();
+            emit(state.copyWith(
+              isBotSpeaking: false,
+            ));
+            break;
+          case 'interrupted':
+            print('INTERRUPTED received');
+            await _voiceEngine!.stopPlayback();
+            emit(state.copyWith(
+              isBotSpeaking: false,
+            ));
+            break;
+          default:
+            print('Unhandled message type: $type');
+        }
+      } else {
+        final Uint8List audioData = message as Uint8List;
+        final amplitude = computeRMSAmplitude(audioData);
+        emit(state.copyWith(isBotSpeaking: true, visualizerAmplitude: amplitude));
+        try {
+          print("Playing audio chunk of size: ${audioData.length} bytes");
+          await _voiceEngine!.playAudioChunk(audioData);
+        } catch (e, stackTrace) {
+          print('Playback error: $e\n$stackTrace');
+          emit(state.copyWith(error: 'Playback error: $e', isError: true));
+        }
       }
+
     } catch (e, stackTrace) {
       print('WebSocket message error: $e\n$stackTrace');
       emit(state.copyWith(error: 'WebSocket message error: $e', isError: true));
@@ -401,8 +403,7 @@ class SessionCubit extends Cubit<SessionState> {
   }
 
   Future<void> switchCamera() async {
-    if (_cameraController != null && _cameras.isNotEmpty && !_isCameraInitialized) {
-      _isCameraInitialized = true; // Set flag before starting switch
+    if (_cameraController != null && _cameras.isNotEmpty) {
       try {
         final CameraDescription currentCamera = _cameraController!.description;
         int nextCameraIndex = _cameras.indexOf(currentCamera) == 0 ? 1 : 0;
@@ -411,15 +412,43 @@ class SessionCubit extends Cubit<SessionState> {
         await _cameraController?.dispose();
         _cameraController = null; // Clear reference immediately
 
+        ImageFormatGroup desiredFormat;
+        if (Platform.isIOS) {
+          desiredFormat = ImageFormatGroup.bgra8888; // More stable on iOS
+          print('Configuring camera for iOS with ImageFormatGroup.bgra8888');
+        } else if (Platform.isAndroid) {
+          desiredFormat = ImageFormatGroup.yuv420; // Common on Android
+          print('Configuring camera for Android with ImageFormatGroup.yuv420');
+        } else {
+          // Fallback for other platforms (e.g., desktop) if camera plugin supports it
+          desiredFormat = ImageFormatGroup.yuv420; // Defaulting to YUV420
+          print('Configuring camera for unknown platform with ImageFormatGroup.yuv420');
+        }
+
         // Initialize the new controller
         _cameraController = CameraController(
           _cameras[nextCameraIndex],
-          ResolutionPreset.high,
+          ResolutionPreset.medium,
           enableAudio: false,
+          imageFormatGroup: desiredFormat
         );
+
         await _cameraController!.initialize();
 
-        emit(state.copyWith(isCameraActive: true, showCameraPreview: true));
+        _isCameraInitialized = true;
+        print('Camera initialized. Starting image stream...');
+
+        _cameraController!.startImageStream((CameraImage image) {
+          _latestCameraImage = image;
+        });
+
+        emit(state.copyWith(
+          isInitializingCamera: false,
+          isCameraActive: true,
+          showCameraPreview: true,
+          isStreamingImages: true,
+        ));
+
       } catch (e) {
         print('Error switching camera: $e');
         emit(state.copyWith(error: 'Error switching camera: $e', isError: true));
@@ -443,6 +472,9 @@ class SessionCubit extends Cubit<SessionState> {
           if (_webSocket != null && _isWebSocketOpen && state.isRecording) {
             _webSocket!.sink.add(audioData); // Send audio as binary
           }
+
+          final amplitude = computeRMSAmplitude(audioData);
+          emit(state.copyWith(visualizerAmplitude: amplitude));
         },
         onError: (error, stackTrace) {
           print('Recording error: $error\n$stackTrace');
@@ -479,4 +511,18 @@ class SessionCubit extends Cubit<SessionState> {
       );
     }
   }
+
+  double computeRMSAmplitude(Uint8List pcm, {int bytesPerSample = 2}) {
+    if (pcm.isEmpty) return 0.0;
+    int sampleCount = pcm.length ~/ bytesPerSample;
+    if (sampleCount == 0) return 0.0;
+    double sumSquares = 0;
+    for (int i = 0; i < pcm.length; i += bytesPerSample) {
+      int sample = pcm.buffer.asByteData().getInt16(i, Endian.little);
+      sumSquares += sample * sample;
+    }
+    double rms = sqrt(sumSquares / sampleCount) / 32768.0; // 16-bit PCM
+    return rms.clamp(0.0, 1.0);
+  }
+
 }

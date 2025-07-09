@@ -13,6 +13,8 @@ class SessionState {
   final bool connecting;
   final bool isBotSpeaking;
 
+  final double visualizerAmplitude;
+
   SessionState({
     this.isSessionStarted = false,
     this.isRecording = false,
@@ -24,6 +26,7 @@ class SessionState {
     this.isStreamingImages = false,
     this.connecting = false,
     this.isBotSpeaking = false,
+    this.visualizerAmplitude = 0.0,
   });
 
   SessionState copyWith({
@@ -37,6 +40,7 @@ class SessionState {
     bool? isStreamingImages,
     bool? isBotSpeaking,
     bool? connecting,
+    double? visualizerAmplitude,
   }) {
     return SessionState(
       isSessionStarted: isSessionStarted ?? this.isSessionStarted,
@@ -49,6 +53,7 @@ class SessionState {
       isStreamingImages: isStreamingImages ?? this.isStreamingImages,
       connecting: connecting ?? this.connecting,
       isBotSpeaking: isBotSpeaking ?? this.isBotSpeaking,
+      visualizerAmplitude: visualizerAmplitude ?? this.visualizerAmplitude,
     );
   }
 }

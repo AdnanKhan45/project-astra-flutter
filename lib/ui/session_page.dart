@@ -7,6 +7,7 @@ import 'package:project_astra_flutter/controller/session_cubit.dart';
 import 'package:project_astra_flutter/controller/session_state.dart';
 import 'package:project_astra_flutter/widgets/blur_clipper.dart';
 import 'package:project_astra_flutter/widgets/loading_widget.dart';
+import 'package:project_astra_flutter/widgets/voice_visualizer.dart';
 
 class SessionPage extends StatefulWidget {
   const SessionPage({super.key});
@@ -196,11 +197,10 @@ class _SessionPageState extends State<SessionPage> with WidgetsBindingObserver {
                 ],
               ),
             ),
-            _bottomButton(
-              bgColor: AstraColors.background,
-              icon: Icon(Icons.waves, color: AstraColors.textPrimary, size: 25),
-              onPressed: () {
-                // Handle waves functionality
+            BlocBuilder<SessionCubit, SessionState>(
+              buildWhen: (prev, next) => prev.visualizerAmplitude != next.visualizerAmplitude,
+              builder: (context, state) {
+                return VoiceVisualizer(amplitude: state.visualizerAmplitude);
               },
             ),
           ],

@@ -87,7 +87,7 @@ class HomePage extends StatelessWidget {
       alignment: Alignment.bottomCenter,
       child:  Container(
         width: 150,
-        margin: EdgeInsets.only(bottom: 10),
+        margin: EdgeInsets.only(bottom: 60),
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [AstraColors.primary, AstraColors.secondary],
