@@ -150,14 +150,12 @@ class SessionCubit extends Cubit<SessionState> {
         channels: 1,
         bitDepth: 16,
         bufferSize: 4096,
-        amplitudeThreshold: 0.05,
         enableAEC: true,
       );
       _voiceEngine!.sessionConfig = AudioSessionConfig(
         category: AudioCategory.playAndRecord,
         mode: AudioMode.spokenAudio,
         options: {AudioOption.defaultToSpeaker, AudioOption.allowBluetoothA2DP, AudioOption.mixWithOthers},
-        preferredBufferDuration: 0.005,
       );
       await _voiceEngine!.initialize();
       print('VoiceEngine initialized');
@@ -220,7 +218,6 @@ class SessionCubit extends Cubit<SessionState> {
           case 'successfully_connected':
             print('Gemini session established! Starting audio...');
             await startRecording();
-            await Future.delayed(const Duration(milliseconds: 500)); // let audio settle
             print('Audio ready, initializing camera...');
             await _initCamera();
             emit(state.copyWith(isSessionStarted: true, connecting: false));
